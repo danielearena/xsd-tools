@@ -391,14 +391,13 @@ def xsd_import2include(main_xsd_file,debuglevel):
         print(f"INFO: Detected sub namespace: {sub_ns}")
         print(f"INFO: Using prefix: {prefix}")
         print(f"INFO: Sub XSD file: {sub_xsd_file}")
-        print(f"INFO: Sub Include file: {sub_include_file}")
-        print(f"INFO: Output Main XSD file: {output_main_xsd}")
 
     # Process sub.xsd selectively
     create_sub_include(main_xsd_file, sub_xsd_file, sub_include_file, prefix, debuglevel)
-
     # Process main.xsd
     update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, debuglevel)
+
+    return (output_main_xsd, sub_include_file)
 
 
 def main():
@@ -423,7 +422,9 @@ def main():
         debuglevel = 2
         
 
-    xsd_import2include(main_xsd_file,debuglevel)
+    (output_main_xsd, sub_include_file) = xsd_import2include(main_xsd_file,debuglevel)
+    print(f"INFO: Output Main XSD file: {output_main_xsd}")
+    print(f"INFO: Sub Include file: {sub_include_file}")
 
 
 if __name__ == "__main__":
