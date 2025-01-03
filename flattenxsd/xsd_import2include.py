@@ -304,13 +304,19 @@ def create_sub_include(main_xsd_file, sub_xsd_file, sub_include_file, prefix, de
         print(f"INFO: Created selective included XSD: {sub_include_file}")
 
 
-
 def update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, debuglevel):
-    """Replace xs:import with xs:include in the main XSD and update references."""
+    """Replace xs:import with xs:include in the main XSD, update references, and preserve comments."""
     tree = ET.parse(main_xsd_file)
     root = tree.getroot()
-
     xs_ns = root.nsmap.get("xs", "http://www.w3.org/2001/XMLSchema")
+
+    # Collect comments and their positions
+    comments = []
+    for parent in root.iter():
+        for child in parent:
+            if isinstance(child, ET._Comment):
+                comments.append((parent, child.getprevious(), child.text))
+                parent.remove(child)  # Temporarily remove comment
 
     # Update references in main.xsd
     for ref_elem in root.findall(".//*[@ref]", namespaces={"xs": xs_ns}):
@@ -332,7 +338,6 @@ def update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, de
             if debuglevel >= 2:
                 print(f"DEBUG: Updated type: {old_type} -> {new_type}")
 
-
     for base_elem in root.findall(".//*[@base]", namespaces={"xs": xs_ns}):
         old_base = base_elem.get("base")  # Get the current value of the base attribute
         if old_base and old_base.startswith(f"{prefix[:-1]}:"):  # Check if it starts with the namespace prefix
@@ -340,7 +345,6 @@ def update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, de
             base_elem.set("base", new_base)  # Update the base attribute
             if debuglevel >= 2:
                 print(f"DEBUG: Updated base: {old_base} -> {new_base}")
-
 
     # Remove xs:import and add xs:include
     for imp in root.findall(".//xs:import", namespaces={"xs": xs_ns}):
@@ -351,10 +355,22 @@ def update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, de
     include_element = ET.Element("{" + xs_ns + "}include", schemaLocation=sub_include_file)
     root.insert(0, include_element)  # Add xs:include as the first child after <xs:schema>
 
+    # Reattach comments with proper handling
+    attached_comments = set()
+    for parent, previous, text in comments:
+        if text not in attached_comments:  # Avoid duplicates
+            comment = ET.Comment(text)
+            attached_comments.add(text)
+
+            # Insert the comment and ensure a newline follows it
+            if previous is not None:
+                parent.insert(parent.index(previous) + 1, comment)
+            else:
+                parent.insert(0, comment)
+
     # Save the modified main.xsd
     tree.write(output_main_xsd, pretty_print=True, xml_declaration=True, encoding="UTF-8")
     print(f"INFO: Processed {main_xsd_file} saved as: {output_main_xsd}")
-
 
 
 def xsd_import2include(main_xsd_file,debuglevel):
