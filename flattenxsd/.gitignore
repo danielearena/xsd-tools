@@ -1,3 +1,6 @@
 *.xsd
 *.pyc
 *.swp
+*.txt
+*.bak
+*.doc
