@@ -3,6 +3,15 @@ import lxml.etree as ET
 import argparse
 
 
+def read_exclude_file(exclude_file):
+    excluded_items = set()
+    if exclude_file and os.path.isfile(exclude_file):
+        with open(exclude_file, "r", encoding="utf-8") as f:
+            excluded_items = {line.strip() for line in f if line.strip()}
+    print(f"Excluding items from renaming: {excluded_items}")
+    return excluded_items
+
+
 def resolve_dependencies(tree, references, xs_ns, debuglevel):
     """
     Recursively find all required definitions based on the references.
@@ -107,7 +116,7 @@ def resolve_dependencies(tree, references, xs_ns, debuglevel):
     return definitions
 
 
-def rename_and_copy_definitions(definitions, prefix, xs_ns, debuglevel):
+def rename_and_copy_definitions(definitions, prefix, xs_ns, debuglevel,excluded_items):
     """Rename and copy the required definitions with the prefix."""
     renamed_definitions = []
     #print (f"definitions.items: {definitions.items()}")
@@ -147,9 +156,10 @@ def rename_and_copy_definitions(definitions, prefix, xs_ns, debuglevel):
                     if is_global:
                         # Rename global definitions
                         renamed_name = f"{prefix}{original_name}"
-                        definition_copy.attrib["name"] = renamed_name
-                        if debuglevel >= 2:
-                            print(f"DEBUG: Renamed global definition from '{original_name}' to '{renamed_name}'")
+                        if original_name not in excluded_items:
+                            definition_copy.attrib["name"] = renamed_name
+                            if debuglevel >= 2:
+                                print(f"DEBUG: Renamed global definition from '{original_name}' to '{renamed_name}'")
                     else:
                         # Skip renaming for local definitions
                         if debuglevel >= 2:
@@ -159,7 +169,7 @@ def rename_and_copy_definitions(definitions, prefix, xs_ns, debuglevel):
                 for dep_attr in ["type", "ref", "base"]:
                     if dep_attr in definition_copy.attrib:
                         dep_ref = definition_copy.attrib[dep_attr]
-                        if ":" not in dep_ref:  # Local reference
+                        if ":" not in dep_ref and dep_ref not in excluded_items:  # Local reference
                             new_ref = f"{prefix}{dep_ref}"
                             definition_copy.attrib[dep_attr] = new_ref
                             if debuglevel >= 2:
@@ -192,14 +202,14 @@ def rename_and_copy_definitions(definitions, prefix, xs_ns, debuglevel):
                     for dep_attr in ["type", "ref", "base"]:
                         if dep_attr in element_copy.attrib:
                             dep_ref = element_copy.attrib[dep_attr]
-                            if ":" not in dep_ref:  # Local reference
+                            if ":" not in dep_ref and dep_ref not in excluded_items:  # Local reference
                                 new_ref = f"{prefix}{dep_ref}"
                                 element_copy.attrib[dep_attr] = new_ref
                                 if debuglevel >= 2:
                                     print(f"DEBUG: Updated child attribute '{dep_attr}' from '{dep_ref}' to '{new_ref}'")
 
                     # Rename 'name' attribute if the child itself is a definition
-                    if "name" in element_copy.attrib:
+                    if "name" in element_copy.attrib and element.attrib["name"] not in excluded_items:
                         original_name = element.attrib["name"]
                         renamed_name = f"{prefix}{original_name}"
                         element_copy.attrib["name"] = renamed_name
@@ -225,7 +235,7 @@ def rename_and_copy_definitions(definitions, prefix, xs_ns, debuglevel):
 
 
 
-def create_sub_include(main_xsd_file, sub_xsd_file, sub_include_file, prefix, debuglevel):
+def create_sub_include(main_xsd_file, sub_xsd_file, sub_include_file, prefix, debuglevel,excluded_items):
     """Create sub_include.xsd with only the definitions needed by main.xsd."""
     # Parse main and sub XSDs
     main_tree = ET.parse(main_xsd_file)
@@ -277,7 +287,7 @@ def create_sub_include(main_xsd_file, sub_xsd_file, sub_include_file, prefix, de
 #            print(f"Warning: Unexpected element type '{element_type}' encountered.")
 
     # Rename and copy definitions with the prefix
-    renamed_definitions = rename_and_copy_definitions(required_definitions, prefix, xs_ns, debuglevel)
+    renamed_definitions = rename_and_copy_definitions(required_definitions, prefix, xs_ns, debuglevel,excluded_items)
 
     # Create a new sub_include.xsd with only required definitions
     # Set nsmap only at the root level, excluding unnecessary namespaces
@@ -304,7 +314,7 @@ def create_sub_include(main_xsd_file, sub_xsd_file, sub_include_file, prefix, de
         print(f"INFO: Created selective included XSD: {sub_include_file}")
 
 
-def update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, debuglevel):
+def update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, debuglevel, excluded_items):
     """Replace xs:import with xs:include in the main XSD, update references, and preserve comments."""
     tree = ET.parse(main_xsd_file)
     root = tree.getroot()
@@ -319,10 +329,15 @@ def update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, de
                 parent.remove(child)  # Temporarily remove comment
 
     # Update references in main.xsd
+
     for ref_elem in root.findall(".//*[@ref]", namespaces={"xs": xs_ns}):
         old_ref = ref_elem.get("ref")
         if old_ref and old_ref.startswith(f"{prefix[:-1]}:"):
-            new_ref = f"{prefix}{old_ref.split(':', 1)[1]}"
+            ref_local_name = old_ref.split(":", 1)[1]
+            if ref_local_name in excluded_items:
+                new_ref = ref_local_name  # Keep original name without prefix
+            else:
+                new_ref = f"{prefix}{ref_local_name}"  # Add prefix
             ref_elem.set("ref", new_ref)
             if debuglevel >= 2:
                 print(f"DEBUG: Updated reference: {old_ref} -> {new_ref}")
@@ -373,7 +388,8 @@ def update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, de
     print(f"INFO: Processed {main_xsd_file} saved as: {output_main_xsd}")
 
 
-def xsd_import2include(main_xsd_file,debuglevel):
+def xsd_import2include(main_xsd_file,exclude_file,debuglevel):
+    excluded_items = read_exclude_file(exclude_file)
     main_xsd_basename = os.path.basename(main_xsd_file)
 
     # Parse main.xsd to identify sub.xsd and determine prefix
@@ -409,9 +425,10 @@ def xsd_import2include(main_xsd_file,debuglevel):
         print(f"INFO: Sub XSD file: {sub_xsd_file}")
 
     # Process sub.xsd selectively
-    create_sub_include(main_xsd_file, sub_xsd_file, sub_include_file, prefix, debuglevel)
+    create_sub_include(main_xsd_file, sub_xsd_file, sub_include_file, prefix, debuglevel, excluded_items)
+    #create_sub_include(main_xsd_file, sub_xsd_file, sub_include_file, prefix, debuglevel)
     # Process main.xsd
-    update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, debuglevel)
+    update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, debuglevel, excluded_items)
 
     return (output_main_xsd, sub_include_file)
 
@@ -419,6 +436,7 @@ def xsd_import2include(main_xsd_file,debuglevel):
 def main():
     parser = argparse.ArgumentParser(description="Changes 'import' statements of an XSD file into 'include' statements.")
     parser.add_argument("mainxsd", help="Path to the XSD file to be processed.")
+    parser.add_argument("-e", "--exclude", help="Path to the exclude file (optional).")
 
     # Create a mutually exclusive group for -v and -d
     group = parser.add_mutually_exclusive_group()
@@ -438,7 +456,7 @@ def main():
         debuglevel = 2
         
 
-    (output_main_xsd, sub_include_file) = xsd_import2include(main_xsd_file,debuglevel)
+    (output_main_xsd, sub_include_file) = xsd_import2include(main_xsd_file,args.exclude,debuglevel)
     print(f"INFO: Output Main XSD file: {output_main_xsd}")
     print(f"INFO: Sub Include file: {sub_include_file}")
 
