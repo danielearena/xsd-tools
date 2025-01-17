@@ -1,7 +1,7 @@
 import os
 import sys
 import argparse
-import xml.etree.ElementTree as ET
+from lxml import etree
 
 def flatten_xsd(input_file, output_file=None):
     if not os.path.isfile(input_file):
@@ -11,20 +11,19 @@ def flatten_xsd(input_file, output_file=None):
         base, ext = os.path.splitext(input_file)
         output_file = f"{base}_flattened{ext}"
 
-    tree = ET.parse(input_file)
+    parser = etree.XMLParser(remove_blank_text=True)
+    tree = etree.parse(input_file, parser)
     root = tree.getroot()
 
-    namespace = {'xs': 'http://www.w3.org/2001/XMLSchema'}
-
     def resolve_includes(element, base_path):
-        for include in element.findall('xs:include', namespace):
-            schema_location = include.get('schemaLocation')
+        for include in element.findall("{http://www.w3.org/2001/XMLSchema}include"):
+            schema_location = include.get("schemaLocation")
             if schema_location:
                 included_path = os.path.join(base_path, schema_location)
                 if not os.path.isfile(included_path):
                     raise FileNotFoundError(f"Included file '{included_path}' not found.")
 
-                included_tree = ET.parse(included_path)
+                included_tree = etree.parse(included_path, parser)
                 included_root = included_tree.getroot()
                 resolve_includes(included_root, os.path.dirname(included_path))
 
@@ -37,7 +36,7 @@ def flatten_xsd(input_file, output_file=None):
 
     resolve_includes(root, os.path.dirname(input_file))
 
-    tree.write(output_file, encoding="utf-8", xml_declaration=True)
+    tree.write(output_file, pretty_print=True, xml_declaration=True, encoding="UTF-8")
     print(f"Flattened schema saved to '{output_file}'")
 
 if __name__ == "__main__":
