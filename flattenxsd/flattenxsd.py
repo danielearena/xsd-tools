@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 from xsd_import2include import xsd_import2include
 from sort_xsd import sort_xsd
 from flatten_include import flatten_xsd
@@ -10,6 +11,7 @@ def flatten_xsd_pipeline(input_xsd, output_xsd, debuglevel, exclude_file):
     1. Convert <xs:import> to <xs:include>.
     2. Sort the included XSD and replace it in the main file.
     3. Flatten the main XSD into a single self-contained file.
+	4. Clean up intermediate files.
     
     Args:
         input_xsd (str): Path to the input XSD file.
@@ -33,6 +35,30 @@ def flatten_xsd_pipeline(input_xsd, output_xsd, debuglevel, exclude_file):
     flatten_xsd(processed_main_xsd, output_xsd)
     if debuglevel >= 1:
         print(f"INFO: Flattened XSD saved to: {output_xsd}")
+
+    # Step 4: Cleanup intermediate files
+    try:
+        os.remove(processed_main_xsd)
+        os.remove(included_xsd)
+        if debuglevel >= 1:
+            print(f"INFO: Cleaned up intermediate files: {processed_main_xsd}, {included_xsd}")
+    except Exception as e:
+        if debuglevel >= 1:
+            print(f"WARNING: Could not delete intermediate files. Error: {e}")
+
+    # Cleanup __pycache__ directory in the script's directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))  # Directory of flattenxsd.py
+    pycache_dir = os.path.join(script_dir, "__pycache__")
+
+    if os.path.isdir(pycache_dir):
+        try:
+            shutil.rmtree(pycache_dir)
+            if debuglevel >= 1:
+                print(f"INFO: Cleaned up {pycache_dir} directory.")
+        except Exception as e:
+            if debuglevel >= 1:
+                print(f"WARNING: Could not delete {pycache_dir}. Error: {e}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Flatten an XSD file from a file containing an import statement.")
