@@ -361,14 +361,17 @@ def update_main_xsd(main_xsd_file, sub_include_file, output_main_xsd, prefix, de
             if debuglevel >= 2:
                 print(f"DEBUG: Updated base: {old_base} -> {new_base}")
 
-    # Remove xs:import and add xs:include
-    for imp in root.findall(".//xs:import", namespaces={"xs": xs_ns}):
+    # Replace each top-level <xs:import> with <xs:include>
+    for imp in root.findall("./xs:import", namespaces={"xs": xs_ns}):
         if debuglevel:
-            print(f"INFO: Removing <xs:import>: {ET.tostring(imp, pretty_print=True).decode()}")
-        root.remove(imp)
+            print("DEBUG: Rewriting import to include:", ET.tostring(imp, pretty_print=True).decode().strip())
+        # Change tag
+        imp.tag = f"{{{xs_ns}}}include"
+        # Drop the namespace attribute
+        imp.attrib.pop("namespace", None)
+        # Point to the new flattened sub-schema
+        imp.attrib["schemaLocation"] = sub_include_file
 
-    include_element = ET.Element("{" + xs_ns + "}include", schemaLocation=sub_include_file)
-    root.insert(0, include_element)  # Add xs:include as the first child after <xs:schema>
 
     # Reattach comments with proper handling
     attached_comments = set()
